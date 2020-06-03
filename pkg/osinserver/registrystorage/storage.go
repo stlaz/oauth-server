@@ -2,6 +2,8 @@ package registrystorage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -128,7 +130,7 @@ func (s *storage) SaveAuthorize(data *osin.AuthorizeData) error {
 // Client information MUST be loaded together.
 // Optionally can return error if expired.
 func (s *storage) LoadAuthorize(code string) (*osin.AuthorizeData, error) {
-	authorize, err := s.authorizetoken.Get(context.TODO(), code, metav1.GetOptions{})
+	authorize, err := s.authorizetoken.Get(context.TODO(), hashToken(code), metav1.GetOptions{})
 	if kerrors.IsNotFound(err) {
 		klog.V(5).Info("Authorization code not found")
 		return nil, nil
@@ -142,7 +144,7 @@ func (s *storage) LoadAuthorize(code string) (*osin.AuthorizeData, error) {
 // RemoveAuthorize revokes or deletes the authorization code.
 func (s *storage) RemoveAuthorize(code string) error {
 	// TODO: return no error if registry returns IsNotFound
-	return s.authorizetoken.Delete(context.TODO(), code, metav1.DeleteOptions{})
+	return s.authorizetoken.Delete(context.TODO(), hashToken(code), metav1.DeleteOptions{})
 }
 
 // SaveAccess writes AccessData.
@@ -160,7 +162,7 @@ func (s *storage) SaveAccess(data *osin.AccessData) error {
 // AuthorizeData and AccessData DON'T NEED to be loaded if not easily available.
 // Optionally can return error if expired.
 func (s *storage) LoadAccess(token string) (*osin.AccessData, error) {
-	access, err := s.accesstoken.Get(context.TODO(), token, metav1.GetOptions{})
+	access, err := s.accesstoken.Get(context.TODO(), hashToken(token), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ func (s *storage) LoadAccess(token string) (*osin.AccessData, error) {
 // RemoveAccess revokes or deletes an AccessData.
 func (s *storage) RemoveAccess(token string) error {
 	// TODO: return no error if registry returns IsNotFound
-	return s.accesstoken.Delete(context.TODO(), token, metav1.DeleteOptions{})
+	return s.accesstoken.Delete(context.TODO(), hashToken(token), metav1.DeleteOptions{})
 }
 
 // LoadRefresh retrieves refresh AccessData. Client information MUST be loaded together.
@@ -188,7 +190,7 @@ func (s *storage) RemoveRefresh(token string) error {
 func (s *storage) convertToAuthorizeToken(data *osin.AuthorizeData) (*oauthapi.OAuthAuthorizeToken, error) {
 	token := &oauthapi.OAuthAuthorizeToken{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: data.Code,
+			Name: hashToken(data.Code),
 			// creation time is controlled by the API
 			// CreationTimestamp: metav1.Time{Time: data.CreatedAt},
 		},
@@ -237,7 +239,7 @@ func (s *storage) convertFromAuthorizeToken(authorize *oauthapi.OAuthAuthorizeTo
 func (s *storage) convertToAccessToken(data *osin.AccessData) (*oauthapi.OAuthAccessToken, error) {
 	token := &oauthapi.OAuthAccessToken{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: data.AccessToken,
+			Name: hashToken(data.AccessToken),
 			// creation time is controlled by the API
 			// CreationTimestamp: metav1.Time{Time: data.CreatedAt},
 		},
@@ -315,4 +317,10 @@ func convertFromToken(name, uid string) (kuser.Info, error) {
 		Name: name,
 		UID:  uid,
 	}, nil
+}
+
+// returns base64-encoded sha256 hash of the input token
+func hashToken(token string) string {
+	tokenHash := sha256.Sum256([]byte(token))
+	return base64.StdEncoding.EncodeToString(tokenHash[:])
 }
